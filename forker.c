@@ -13,8 +13,6 @@
 #include "gdef.h"
 
     
-struct fd_list fds;
-
 int create_server(int port);
 int accept_conn(int timeout);
 int listenfd=-1;
@@ -69,40 +67,31 @@ int create_server(int port)
     return 0;
 }
 
-int insert_fd(int fd){
-    struct fd_list* entry;
-    entry=(struct fd_list*)malloc(sizeof(struct fd_list));
-    if(entry == NULL){
-        printf("malloc entry failed\n");
-        list_release((struct list_head*)&fds);
-        return -1;
-    }
-    entry->fd=fd;
-    list_insert((struct list_head*)&fds,(struct list_head*)entry);
-    return 0;
-}
-
 int accept_conn(int timeout){
 
-    char buffer[1024];
-    struct pollfd pfd[100];
-    int acceptfd=-1;
-    int i=0;
-    int rc = 0;
+    char  buffer[1024];
+    int   acceptfd=-1;
+    int   i=0;
+    int   rc=0;
+    fdset pollfds;
 
-    list_init((struct list_head*)&fds);
-    insert_fd(listenfd);
+    fdset_init(&pollfds);
+    fdset_insert(&pollfds,listenfd);
 
     while(1){
         struct list_head *iter=NULL;
         int    list_size = 0;
-        for(iter=fds.head.next;iter!=NULL;iter=iter->next){
-            pfd[list_size].fd=((struct fd_list *)iter)->fd;
+        struct pollfd pfd[100];
+        int    fd;
+
+        list_entry(pollfds,fd)
+            pfd[list_size].fd=fd;
             pfd[list_size].events=POLLIN;
             pfd[list_size].revents=0;
             list_size++;
-        }
+        list_entry_end
 
+        printf("polled fd %d\n",list_size);
         rc=poll(pfd,list_size,timeout);
         if(rc==-1){
             printf("poll error happens %d ",errno);
@@ -121,11 +110,7 @@ int accept_conn(int timeout){
                         return -2;
                     }
                     fcntl(acceptfd,F_SETFL,O_NONBLOCK);
-                    rc=insert_fd(acceptfd);
-                    if(rc < 0){
-                        printf("insert fd failed\n");
-                        return rc;
-                    }
+                    fdset_insert(&pollfds,acceptfd);
                     printf("success accept a conn\n");
                 }else{
                     int len=read(pfd[i].fd,buffer,1024);
@@ -134,7 +119,7 @@ int accept_conn(int timeout){
                         return -1;
                     }else if(len ==0){
                         printf("deleted a fd %d\n",pfd[i].fd);
-                        delete_fd(&fds,pfd[i].fd);
+                        fdset_delete(&pollfds,pfd[i].fd);
                         close(pfd[i].fd);
                     }else{
                         printf("received a message len %d\n",len);
@@ -146,7 +131,7 @@ int accept_conn(int timeout){
                             printf("received task id %d %d %d\n",ntohl(head->id),ntohl(req->linkcount),ntohl(req->taskid));
                             fork_and_send(pfd[i].fd,ntohl(head->id));
                         }
-                        delete_fd(&fds,pfd[i].fd);
+                        fdset_delete(&pollfds,pfd[i].fd);
                         close(pfd[i].fd);
                     }
                }

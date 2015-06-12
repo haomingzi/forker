@@ -8,10 +8,12 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <stdio.h>
+#include "gdef.h"
 #include "worker.h"
 
+static workmap workers;
 static int send_task_info(int sender_fd,int fd_to_send,int taskid);
-static int unixfd;
+
 int create_unix_server(int taskid){
     char   path[500];
     int    rc = -1;
@@ -51,8 +53,8 @@ int fork_and_send(int fd_to_send,int taskid)
     int        rc=-1;
     static int first = 1;
     int        unix_server_fd;
-    if(first == 1){
-        first = 0;
+    if(!workmap_find(&workers,taskid)){
+        int unixfd;
         unix_server_fd=create_unix_server(taskid);
         if(unix_server_fd < 0){
             return -1;
@@ -73,10 +75,12 @@ int fork_and_send(int fd_to_send,int taskid)
             printf("accept faild %s\n",strerror(errno));
             exit(5);
         }
+        workmap_insert(&workers,taskid,unixfd);
         close(unix_server_fd);
     }
 
-    rc=send_task_info(unixfd,fd_to_send,taskid);
+    int senderfd=workers[taskid];
+    rc=send_task_info(senderfd,fd_to_send,taskid);
     if(rc<0)
         return rc;
     return 0;

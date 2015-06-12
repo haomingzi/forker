@@ -1,5 +1,10 @@
-#ifndef GDEF_H
-#define GDEF_H
+#ifndef  GDEF_H
+#define  GDEF_H
+#include <set>
+#include <map>
+
+using namespace std;
+
 struct msghead{
     int  id;
     int  size;
@@ -11,8 +16,12 @@ struct request{
     int taskid;
 };
 
+typedef set<int> fdset;
+typedef map<int,int> workmap;
+
 struct list_head{
     struct list_head *next;
+    void *payload;
 };
 
 struct fd_list{
@@ -20,11 +29,19 @@ struct fd_list{
     int    fd;
 };
 
-void list_init(struct list_head* head);
-void list_insert(struct list_head* head,struct list_head* fd);
-struct list_head* list_iter(struct list_head* head);
-void list_release(struct list_head* head);
-void delete_fd(struct fd_list *fdlist,int fd);
+#define list_entry(_set,fd)  \
+    for(fdset::iterator iter=_set.begin();iter!=_set.end();iter++){ \
+        fd = (*iter);
+
+#define list_entry_end  }
+
+void fdset_init(fdset *_set);
+void fdset_insert(fdset *_set,int fd);
+void fdset_delete(fdset *_set,int fd);
+void fdset_clear(fdset *_set);
+bool workmap_find(workmap *_map,int taskid);
+void workmap_insert(workmap *_map,int taskid,int fd);
+void workmap_delete(workmap *_map,int taskid);
 
 #endif
 
