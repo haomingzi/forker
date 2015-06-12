@@ -190,16 +190,14 @@ int accept_conn(int timeout){
                         printf("received a message len %d\n",len);
                         struct msghead *head=(struct msghead *)buffer;
                         if(ntohl(head->size) != sizeof(struct request)){
-                            delete_fd(&fds,pfd[i].fd);
-                            close(pfd[i].fd);
                             printf("received invalid len msg\n");
                         }else{
                             struct request *req=(struct request *)head->payload;
                             printf("received task id %d %d %d\n",ntohl(head->id),ntohl(req->linkcount),ntohl(req->taskid));
                             fork_and_send(pfd[i].fd,ntohl(head->id));
-                            delete_fd(&fds,pfd[i].fd);
-                            close(pfd[i].fd);
                         }
+                        delete_fd(&fds,pfd[i].fd);
+                        close(pfd[i].fd);
                     }
                }
             }else if(pfd[i].revents&POLLNVAL){

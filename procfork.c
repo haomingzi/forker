@@ -8,15 +8,14 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <stdio.h>
+#include "worker.h"
 
-static int first = 1;
-static int fd;
-static int newfd;
-
+static int send_task_info(int sender_fd,int fd_to_send,int taskid);
+static int unixfd;
 int create_unix_server(int taskid){
-    char path[500];
-    int rc;
-    int fd;
+    char   path[500];
+    int    rc = -1;
+    int    fd;
     struct sockaddr_un addr;
 
     snprintf(path,500,"/home/zdx/%d.sock",taskid);
@@ -43,12 +42,48 @@ int create_unix_server(int taskid){
         return rc;
     }
 
-    return rc;
+    return fd;
 }
 
 int fork_and_send(int fd_to_send,int taskid)
 {
-    int sendfd;
+    /* Initialize the payload: */
+    int        rc=-1;
+    static int first = 1;
+    int        unix_server_fd;
+    if(first == 1){
+        first = 0;
+        unix_server_fd=create_unix_server(taskid);
+        if(unix_server_fd < 0){
+            return -1;
+        }
+        pid_t pid=fork();
+        if(pid < 0){
+            printf("fork faild %d\n",errno);
+            close(unix_server_fd);
+            return -1;
+        }else if(pid == 0){
+            close(fd_to_send);
+            close(unix_server_fd);
+            worker(taskid);
+        }
+
+        unixfd = accept(unix_server_fd,NULL,0);
+        if(unixfd == -1){
+            printf("accept faild %s\n",strerror(errno));
+            exit(5);
+        }
+        close(unix_server_fd);
+    }
+
+    rc=send_task_info(unixfd,fd_to_send,taskid);
+    if(rc<0)
+        return rc;
+    return 0;
+}
+
+static int send_task_info(int sender_fd,int fd_to_send,int task_id)
+{
     struct msghdr msg = {0};
     struct cmsghdr *cmsg;
     int myfds; /* Contains the file descriptors to pass. */
@@ -65,85 +100,16 @@ int fork_and_send(int fd_to_send,int taskid)
     cmsg->cmsg_len = CMSG_LEN(sizeof(int));
     msg.msg_name=NULL;
     msg.msg_namelen=0;
-    iov[0].iov_base=&taskid;
-    iov[0].iov_len=sizeof(taskid);
+    iov[0].iov_base=&task_id;
+    iov[0].iov_len=sizeof(task_id);
     msg.msg_iov=iov;
     msg.msg_iovlen=1;
-    /* Initialize the payload: */
+    *(int *) CMSG_DATA(cmsg) = fd_to_send;
 
-    if(first == 1){
-        first = 0;
-        rc=create_unix_server(taskid);
-        if(rc < 0){
-            return rc;
-        }
-        pid_t pid=fork();
-        if(pid < 0){
-            printf("fork faild\n");
-            close(fd);
-            exit(7);
-        }else if(pid == 0){
-            struct sockaddr_un addr;
-            char path[500];
-            int  unix_server_fd; 
-
-            close(fd_to_send);
-            close(fd);
-            snprintf(path,500,"/home/zdx/%d.sock",taskid);
-
-            addr.sun_family=AF_UNIX;
-            strcpy(addr.sun_path,path);
-
-            unix_server_fd=socket(AF_UNIX,SOCK_STREAM,0);
-            if(unix_server_fd < 0){
-                printf("child fd connect failed\n");
-                exit(1);
-            }
-
-            rc = connect(unix_server_fd,(struct sockaddr*)&addr, sizeof(struct sockaddr_un));
-            if(rc < 0){
-                close(unix_server_fd);
-                printf("connetc failed %s \n",strerror(errno));
-                exit(10);
-            }
-
-            while(1){
-                rc=recvmsg(unix_server_fd,&msg,0);
-                if(rc < 0){
-                    close(unix_server_fd);
-                    printf("recv msg failed %s\n",strerror(errno));
-                    exit(7);
-                }
-                fdptr = (int *)CMSG_DATA(cmsg);
-                int writefd= *fdptr;
-                rc =  write(writefd,"good\n",5);
-                if(rc < 0){
-                    close(unix_server_fd);
-                    printf("write failed");
-                    exit(8);
-                }
-                printf("write success\n");
-                close(writefd);
-            }
-            close(unix_server_fd);
-            exit(0);
-        }
-
-        socklen_t newsocklen;
-        newfd = accept(fd,NULL,0);
-        if(newfd == -1){
-            printf("accept faild %s\n",strerror(errno));
-            exit(5);
-        }
-        close(fd);
-    }
-    
-    fdptr = (int *) CMSG_DATA(cmsg);
-    *fdptr=fd_to_send;
-    rc = sendmsg(newfd,&msg,0);
+    rc = sendmsg(sender_fd,&msg,0);
     if(rc == -1){
         printf("send msg failed");
-        exit(6);
+        return -1;
     }
 
     return 0;
