@@ -16,8 +16,14 @@ struct request{
     int taskid;
 };
 
+typedef struct _work{
+    int commfd;
+    int totallinker;
+    int currentlinker;
+}work;
+
 typedef set<int> fdset;
-typedef map<int,int> workmap;
+typedef map<int,work> workmap;
 
 struct list_head{
     struct list_head *next;
@@ -39,9 +45,11 @@ void fdset_init(fdset *_set);
 void fdset_insert(fdset *_set,int fd);
 void fdset_delete(fdset *_set,int fd);
 void fdset_clear(fdset *_set);
-bool workmap_find(workmap *_map,int taskid);
-void workmap_insert(workmap *_map,int taskid,int fd);
+work* workmap_find(workmap *_map,int taskid);
+void workmap_insert(workmap *_map,int taskid,work worker);
 void workmap_delete(workmap *_map,int taskid);
+void work_ref_inc(work* _pw);
+bool work_finish(work* _pw);
 
 #endif
 

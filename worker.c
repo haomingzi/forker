@@ -8,8 +8,9 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <stdio.h>
+#include "gdef.h"
 
-int worker(int task_id)
+int worker(int task_id,int totallinker)
 {
     int     sendfd;
     struct  msghdr msg = {0};
@@ -20,6 +21,7 @@ int worker(int task_id)
     struct  sockaddr_un addr;
     char    path[500];
     int     unix_server_fd; 
+    int     current_linker;
 
     msg.msg_control = buf;
     msg.msg_controllen = sizeof buf;

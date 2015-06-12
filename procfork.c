@@ -47,14 +47,15 @@ int create_unix_server(int taskid){
     return fd;
 }
 
-int fork_and_send(int fd_to_send,int taskid)
+int fork_and_send(int fd_to_send,int taskid,int totallinker)
 {
     /* Initialize the payload: */
     int        rc=-1;
     static int first = 1;
     int        unix_server_fd;
-    if(!workmap_find(&workers,taskid)){
-        int unixfd;
+    if(NULL==workmap_find(&workers,taskid)){
+        int  unixfd;
+        work newwork;
         unix_server_fd=create_unix_server(taskid);
         if(unix_server_fd < 0){
             return -1;
@@ -67,7 +68,7 @@ int fork_and_send(int fd_to_send,int taskid)
         }else if(pid == 0){
             close(fd_to_send);
             close(unix_server_fd);
-            worker(taskid);
+            worker(taskid,totallinker);
         }
 
         unixfd = accept(unix_server_fd,NULL,0);
@@ -75,14 +76,25 @@ int fork_and_send(int fd_to_send,int taskid)
             printf("accept faild %s\n",strerror(errno));
             exit(5);
         }
-        workmap_insert(&workers,taskid,unixfd);
+
+        newwork.commfd=unixfd;
+        newwork.totallinker=totallinker;
+        newwork.currentlinker=0;
+        workmap_insert(&workers,taskid,newwork);
         close(unix_server_fd);
     }
 
-    int senderfd=workers[taskid];
-    rc=send_task_info(senderfd,fd_to_send,taskid);
+    work *pw=workmap_find(&workers,taskid);
+    work_ref_inc(pw);
+    rc=send_task_info(pw->commfd,fd_to_send,taskid);
     if(rc<0)
         return rc;
+
+    if(work_finish(pw)){
+        close(pw->commfd);
+        workmap_delete(&workers,taskid);
+    }
+
     return 0;
 }
 

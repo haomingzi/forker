@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 #include "procfork.h"
 #include "gdef.h"
 
@@ -19,6 +20,7 @@ int listenfd=-1;
 
 int main(int argc,char *argv[])
 {
+    signal(SIGCHLD,SIG_IGN);
     int rc=create_server(6666);
     if(rc!=0)
         return rc;
@@ -129,7 +131,7 @@ int accept_conn(int timeout){
                         }else{
                             struct request *req=(struct request *)head->payload;
                             printf("received task id %d %d %d\n",ntohl(head->id),ntohl(req->linkcount),ntohl(req->taskid));
-                            fork_and_send(pfd[i].fd,ntohl(head->id));
+                            fork_and_send(pfd[i].fd,ntohl(req->taskid),ntohl(req->linkcount));
                         }
                         fdset_delete(&pollfds,pfd[i].fd);
                         close(pfd[i].fd);
