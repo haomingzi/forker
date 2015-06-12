@@ -9,6 +9,18 @@
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
+#include "procfork.h"
+
+struct msghead{
+    int  id;
+    int  size;
+    char payload[];
+};
+
+struct request{
+    int linkcount;
+    int taskid;
+};
 
 struct list_head{
     struct list_head *next;
@@ -59,76 +71,11 @@ int listenfd=-1;
 
 int main(int argc,char *argv[])
 {
-    struct fd_list* entry;
-    char buffer[1024];
-    struct pollfd pfd[100];
-    int i=0;
-
-    list_init((struct list_head*)&fds);
-
     int rc=create_server(6666);
     if(rc!=0)
         return rc;
 
-    while(1){
-       int rfd=accept_conn(300000);
-       if(rfd == -1){
-           return 2;
-       }else if(rfd == 0){
-           printf("timeout\n");
-       }
-
-       entry=(struct fd_list*)malloc(sizeof(struct fd_list));
-       if(entry == NULL){
-           printf("malloc entry failed\n");
-           list_release((struct list_head*)&fds);
-           return 3;
-       }
-       entry->fd=rfd;
-       list_insert((struct list_head*)&fds,(struct list_head*)entry);
-
-       struct list_head *iter=NULL;
-       int    list_size = 0;
-       for(iter=fds.head.next;iter!=NULL;iter=iter->next){
-           pfd[list_size].fd=((struct fd_list *)iter)->fd;
-           pfd[list_size].events=POLLIN;
-           pfd[list_size].revents=0;
-           list_size++;
-       }
-
-       while(1){
-           int rc=poll(pfd,list_size,3000);
-           if(rc==-1){
-               printf("poll error happens %d ",errno);
-               return -1;
-           }else if(rc==0){
-               printf("poll timeout happens second poll\n");
-               break; 
-           }
-    
-           for(i=0;i<list_size;i++){
-               if(pfd[i].revents&POLLIN){
-                   int len=read(pfd[i].fd,buffer,1024);
-                   if(len < 0){
-                       printf("read error %d %s\n",pfd[i].fd,strerror(errno));
-                       return -1;
-                   }else if(len ==0){
-                       printf("deleted a fd %d\n",pfd[i].fd);
-                       delete_fd(&fds,pfd[i].fd);
-                       close(pfd[i].fd);
-                       pfd[i].fd=-1;
-                   }
-                   printf("received a message len %d\n",len);
-               }else if(pfd[i].revents&POLLNVAL){
-                   printf("fd is not open\n");
-               }else if(pfd[i].revents&POLLERR){
-                   printf("poll err happends\n");
-               }else if(pfd[i].revents&POLLHUP){
-                   printf("poll hup happends\n");
-               }
-           }
-       }
-    }
+    accept_conn(5000);
     return 0;
 }
 
@@ -152,6 +99,7 @@ int create_server(int port)
         .sin_family=AF_INET,
         .sin_port=htons(port)
     };
+
     addr.sin_addr.s_addr=htons(INADDR_ANY);
 
     rc=bind(listenfd,(struct sockaddr*)&addr,sizeof(struct sockaddr_in));
@@ -171,32 +119,98 @@ int create_server(int port)
     return 0;
 }
 
+int insert_fd(int fd){
+    struct fd_list* entry;
+    entry=(struct fd_list*)malloc(sizeof(struct fd_list));
+    if(entry == NULL){
+        printf("malloc entry failed\n");
+        list_release((struct list_head*)&fds);
+        return -1;
+    }
+    entry->fd=fd;
+    list_insert((struct list_head*)&fds,(struct list_head*)entry);
+    return 0;
+}
+
 int accept_conn(int timeout){
 
-    struct pollfd pfd={
-        .fd=listenfd,
-        .events=POLLIN,
-        .revents=0
-    };
+    char buffer[1024];
+    struct pollfd pfd[100];
+    int acceptfd=-1;
+    int i=0;
+    int rc = 0;
 
-    int rc=poll(&pfd,1,timeout);
-    if(rc==-1){
-        printf("poll error happens %d ",errno);
-        return -1;
-    }else if(rc==0){
-        printf("poll timeout happens");
-        return 0; 
-    }
+    list_init((struct list_head*)&fds);
+    insert_fd(listenfd);
 
-    if(POLLIN&pfd.revents){
-        rc=accept(listenfd,NULL,NULL);
-        if(rc == -1){
-            printf("accept error %d\n",errno);
-            return -2;
+    while(1){
+        struct list_head *iter=NULL;
+        int    list_size = 0;
+        for(iter=fds.head.next;iter!=NULL;iter=iter->next){
+            pfd[list_size].fd=((struct fd_list *)iter)->fd;
+            pfd[list_size].events=POLLIN;
+            pfd[list_size].revents=0;
+            list_size++;
         }
-        fcntl(rc,F_SETFL,O_NONBLOCK);
-    }
 
+        rc=poll(pfd,list_size,timeout);
+        if(rc==-1){
+            printf("poll error happens %d ",errno);
+            return -1;
+        }else if(rc==0){
+            printf("poll timeout happens second poll\n");
+            continue;
+        }
+    
+        for(i=0;i<list_size;i++){
+            if(pfd[i].revents&POLLIN){
+                if(pfd[i].fd == listenfd){
+                    acceptfd=accept(listenfd,NULL,NULL);
+                    if(acceptfd == -1){
+                        printf("accept error %d\n",errno);
+                        return -2;
+                    }
+                    fcntl(acceptfd,F_SETFL,O_NONBLOCK);
+                    rc=insert_fd(acceptfd);
+                    if(rc < 0){
+                        printf("insert fd failed\n");
+                        return rc;
+                    }
+                    printf("success accept a conn\n");
+                }else{
+                    int len=read(pfd[i].fd,buffer,1024);
+                    if(len < 0){
+                        printf("read error %d %s\n",pfd[i].fd,strerror(errno));
+                        return -1;
+                    }else if(len ==0){
+                        printf("deleted a fd %d\n",pfd[i].fd);
+                        delete_fd(&fds,pfd[i].fd);
+                        close(pfd[i].fd);
+                    }else{
+                        printf("received a message len %d\n",len);
+                        struct msghead *head=(struct msghead *)buffer;
+                        if(ntohl(head->size) != sizeof(struct request)){
+                            delete_fd(&fds,pfd[i].fd);
+                            close(pfd[i].fd);
+                            printf("received invalid len msg\n");
+                        }else{
+                            struct request *req=(struct request *)head->payload;
+                            printf("received task id %d %d %d\n",ntohl(head->id),ntohl(req->linkcount),ntohl(req->taskid));
+                            fork_and_send(pfd[i].fd,ntohl(head->id));
+                            delete_fd(&fds,pfd[i].fd);
+                            close(pfd[i].fd);
+                        }
+                    }
+               }
+            }else if(pfd[i].revents&POLLNVAL){
+               printf("fd is not open\n");
+            }else if(pfd[i].revents&POLLERR){
+               printf("poll err happends\n");
+            }else if(pfd[i].revents&POLLHUP){
+               printf("poll hup happends\n");
+            }
+        }
+    }
     return rc;
 }
 
