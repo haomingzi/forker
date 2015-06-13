@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include "gdef.h"
 
+#define BUFFER_LEN (1024)
 int worker(int task_id,int totallinker)
 {
     int     sendfd;
@@ -23,7 +24,7 @@ int worker(int task_id,int totallinker)
     int     unix_server_fd; 
     int     current_linker=0;
     struct  request req;
-    fdset   rfdset;
+    int     rfd=-1;
     fdset   wfdset;
 
     msg.msg_control = buf;
@@ -68,11 +69,11 @@ int worker(int task_id,int totallinker)
         int tempfd = *(int *)CMSG_DATA(cmsg);
 
         if(req.type==0){
-            fdset_insert(&rfdset,tempfd);
+            rfd=tempfd;
         }else if(req.type==1){
             fdset_insert(&wfdset,tempfd);
         }else{
-            printf("unknown fd type !!!\n");
+            printf("unknown fd type %d\n",req.type);
             exit(8);
         }
         current_linker++;
@@ -81,7 +82,32 @@ int worker(int task_id,int totallinker)
             break;
     }
 
-    close(unix_server_fd);
+    if(rfd==-1||wfdset.size()==0){
+        exit(9);
+    }
 
+    char *data=(char *)malloc(1024);
+    int   readlen=0;
+    int   writefd;
+    int   writelen;
+    while(1){
+        readlen=read(rfd,data,BUFFER_LEN);
+        if(readlen>0){
+            list_entry(wfdset,writefd)
+                writelen=write(writefd,data,readlen);
+                if(writelen < 0){
+                    printf("write len %d %s\n",writelen,strerror(errno));
+                    break;
+                }
+            list_entry_end
+            if(writelen<0)
+                break;
+        }else{
+            printf("%d %s\n",readlen,strerror(errno));
+            break;
+        }
+    }
+
+    close(unix_server_fd);
     exit(0);
 }

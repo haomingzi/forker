@@ -12,7 +12,7 @@
 #include "worker.h"
 
 static workmap workers;
-static int send_task_info(int sender_fd,struct request *req);
+static int send_task_info(int sender_fd,int fd_to_send,struct request *req);
 
 int create_unix_server(int taskid){
     char   path[500];
@@ -54,6 +54,7 @@ int fork_and_send(int fd_to_send,struct request *req)
     static int first = 1;
     int        unix_server_fd;
     if(NULL==workmap_find(&workers,req->taskid)){
+        printf("fork a child process\n");
         int  unixfd;
         work newwork;
         unix_server_fd=create_unix_server(req->taskid);
@@ -86,7 +87,7 @@ int fork_and_send(int fd_to_send,struct request *req)
 
     work *pw=workmap_find(&workers,req->taskid);
     work_ref_inc(pw);
-    rc=send_task_info(pw->commfd,req);
+    rc=send_task_info(pw->commfd,fd_to_send,req);
     if(rc<0)
         return rc;
 
@@ -98,7 +99,7 @@ int fork_and_send(int fd_to_send,struct request *req)
     return 0;
 }
 
-static int send_task_info(int sender_fd,struct request *req)
+static int send_task_info(int sender_fd,int fd_to_send,struct request *req)
 {
     struct msghdr msg = {0};
     struct cmsghdr *cmsg;
@@ -118,7 +119,7 @@ static int send_task_info(int sender_fd,struct request *req)
     iov[0].iov_len=sizeof(struct request);
     msg.msg_iov=iov;
     msg.msg_iovlen=1;
-    *(int *)CMSG_DATA(cmsg)=sender_fd;
+    *(int *)CMSG_DATA(cmsg)=fd_to_send;
 
     rc = sendmsg(sender_fd,&msg,0);
     if(rc == -1){

@@ -21,6 +21,7 @@ int listenfd=-1;
 int main(int argc,char *argv[])
 {
     signal(SIGCHLD,SIG_IGN);
+    signal(SIGPIPE,SIG_IGN);
     int rc=create_server(6666);
     if(rc!=0)
         return rc;
@@ -93,13 +94,11 @@ int accept_conn(int timeout){
             list_size++;
         list_entry_end
 
-        printf("polled fd %d\n",list_size);
         rc=poll(pfd,list_size,timeout);
         if(rc==-1){
             printf("poll error happens %d ",errno);
             return -1;
         }else if(rc==0){
-            printf("poll timeout happens second poll\n");
             continue;
         }
     
@@ -111,7 +110,7 @@ int accept_conn(int timeout){
                         printf("accept error %d\n",errno);
                         return -2;
                     }
-                    fcntl(acceptfd,F_SETFL,O_NONBLOCK);
+                    //fcntl(acceptfd,F_SETFL,O_NONBLOCK);
                     fdset_insert(&pollfds,acceptfd);
                     printf("success accept a conn\n");
                 }else{
@@ -133,7 +132,7 @@ int accept_conn(int timeout){
                             req->linkcount=ntohl(req->linkcount);
                             req->taskid=ntohl(req->taskid);
                             req->type=ntohl(req->type);
-                            printf("received task id %d %d %d\n",ntohl(head->id),req->linkcount,req->taskid);
+                            printf("received task id %d %d %d type %d\n",ntohl(head->id),req->linkcount,req->taskid,req->type);
                             fork_and_send(pfd[i].fd,req);
                         }
                         fdset_delete(&pollfds,pfd[i].fd);
