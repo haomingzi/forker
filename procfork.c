@@ -12,7 +12,7 @@
 #include "worker.h"
 
 static workmap workers;
-static int send_task_info(int sender_fd,int fd_to_send,int taskid);
+static int send_task_info(int sender_fd,struct request *req);
 
 int create_unix_server(int taskid){
     char   path[500];
@@ -20,7 +20,7 @@ int create_unix_server(int taskid){
     int    fd;
     struct sockaddr_un addr;
 
-    snprintf(path,500,"/home/zdx/%d.sock",taskid);
+    snprintf(path,500,"/tmp/%d.sock",taskid);
 
     addr.sun_family=AF_UNIX;
     strcpy(addr.sun_path,path);
@@ -47,16 +47,16 @@ int create_unix_server(int taskid){
     return fd;
 }
 
-int fork_and_send(int fd_to_send,int taskid,int totallinker)
+int fork_and_send(int fd_to_send,struct request *req)
 {
     /* Initialize the payload: */
     int        rc=-1;
     static int first = 1;
     int        unix_server_fd;
-    if(NULL==workmap_find(&workers,taskid)){
+    if(NULL==workmap_find(&workers,req->taskid)){
         int  unixfd;
         work newwork;
-        unix_server_fd=create_unix_server(taskid);
+        unix_server_fd=create_unix_server(req->taskid);
         if(unix_server_fd < 0){
             return -1;
         }
@@ -66,11 +66,9 @@ int fork_and_send(int fd_to_send,int taskid,int totallinker)
             close(unix_server_fd);
             return -1;
         }else if(pid == 0){
-            close(fd_to_send);
-            close(unix_server_fd);
             close_all_files();
             workmap_clear(&workers);
-            worker(taskid,totallinker);
+            worker(req->taskid,req->linkcount);
         }
 
         unixfd = accept(unix_server_fd,NULL,0);
@@ -80,33 +78,31 @@ int fork_and_send(int fd_to_send,int taskid,int totallinker)
         }
 
         newwork.commfd=unixfd;
-        newwork.totallinker=totallinker;
+        newwork.totallinker=req->linkcount;
         newwork.currentlinker=0;
-        workmap_insert(&workers,taskid,newwork);
+        workmap_insert(&workers,req->taskid,newwork);
         close(unix_server_fd);
     }
 
-    work *pw=workmap_find(&workers,taskid);
+    work *pw=workmap_find(&workers,req->taskid);
     work_ref_inc(pw);
-    rc=send_task_info(pw->commfd,fd_to_send,taskid);
+    rc=send_task_info(pw->commfd,req);
     if(rc<0)
         return rc;
 
     if(work_finish(pw)){
         close(pw->commfd);
-        workmap_delete(&workers,taskid);
+        workmap_delete(&workers,req->taskid);
     }
 
     return 0;
 }
 
-static int send_task_info(int sender_fd,int fd_to_send,int task_id)
+static int send_task_info(int sender_fd,struct request *req)
 {
     struct msghdr msg = {0};
     struct cmsghdr *cmsg;
-    int myfds; /* Contains the file descriptors to pass. */
-    char buf[CMSG_SPACE(sizeof myfds)];  /* ancillary data buffer */
-    int *fdptr;
+    char buf[CMSG_SPACE(sizeof(int))];  /* ancillary data buffer */
     struct iovec iov[1];
     int rc = 0;
 
@@ -118,11 +114,11 @@ static int send_task_info(int sender_fd,int fd_to_send,int task_id)
     cmsg->cmsg_len = CMSG_LEN(sizeof(int));
     msg.msg_name=NULL;
     msg.msg_namelen=0;
-    iov[0].iov_base=&task_id;
-    iov[0].iov_len=sizeof(task_id);
+    iov[0].iov_base=req;
+    iov[0].iov_len=sizeof(struct request);
     msg.msg_iov=iov;
     msg.msg_iovlen=1;
-    *(int *) CMSG_DATA(cmsg) = fd_to_send;
+    *(int *)CMSG_DATA(cmsg)=sender_fd;
 
     rc = sendmsg(sender_fd,&msg,0);
     if(rc == -1){

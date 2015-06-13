@@ -11,7 +11,11 @@ struct msghead{
     char payload[];
 };
 
+#define REQ_READ   (0)
+#define REQ_WRITE  (1)
+
 struct request{
+    int type;
     int linkcount;
     int taskid;
 };

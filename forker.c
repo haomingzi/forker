@@ -130,8 +130,11 @@ int accept_conn(int timeout){
                             printf("received invalid len msg\n");
                         }else{
                             struct request *req=(struct request *)head->payload;
-                            printf("received task id %d %d %d\n",ntohl(head->id),ntohl(req->linkcount),ntohl(req->taskid));
-                            fork_and_send(pfd[i].fd,ntohl(req->taskid),ntohl(req->linkcount));
+                            req->linkcount=ntohl(req->linkcount);
+                            req->taskid=ntohl(req->taskid);
+                            req->type=ntohl(req->type);
+                            printf("received task id %d %d %d\n",ntohl(head->id),req->linkcount,req->taskid);
+                            fork_and_send(pfd[i].fd,req);
                         }
                         fdset_delete(&pollfds,pfd[i].fd);
                         close(pfd[i].fd);

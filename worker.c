@@ -21,7 +21,10 @@ int worker(int task_id,int totallinker)
     struct  sockaddr_un addr;
     char    path[500];
     int     unix_server_fd; 
-    int     current_linker;
+    int     current_linker=0;
+    struct  request req;
+    fdset   rfdset;
+    fdset   wfdset;
 
     msg.msg_control = buf;
     msg.msg_controllen = sizeof buf;
@@ -31,12 +34,12 @@ int worker(int task_id,int totallinker)
     cmsg->cmsg_len = CMSG_LEN(sizeof(int));
     msg.msg_name=NULL;
     msg.msg_namelen=0;
-    iov[0].iov_base=&task_id;
-    iov[0].iov_len=sizeof(task_id);
+    iov[0].iov_base=&req;
+    iov[0].iov_len=sizeof(struct request);
     msg.msg_iov=iov;
     msg.msg_iovlen=1;
     /* Initialize the payload: */
-    snprintf(path,500,"/home/zdx/%d.sock",task_id);
+    snprintf(path,500,"/tmp/%d.sock",task_id);
 
     addr.sun_family=AF_UNIX;
     strcpy(addr.sun_path,path);
@@ -55,22 +58,30 @@ int worker(int task_id,int totallinker)
     }
 
     while(1){
+        memset(&req,0,sizeof(struct request));
         rc=recvmsg(unix_server_fd,&msg,0);
         if(rc < 0){
             close(unix_server_fd);
             printf("recv msg failed %s\n",strerror(errno));
             exit(7);
         }
-        int writefd = *(int *)CMSG_DATA(cmsg);
-        rc =  write(writefd,"good\n",5);
-        if(rc < 0){
-            close(unix_server_fd);
-            printf("write failed");
+        int tempfd = *(int *)CMSG_DATA(cmsg);
+
+        if(req.type==0){
+            fdset_insert(&rfdset,tempfd);
+        }else if(req.type==1){
+            fdset_insert(&wfdset,tempfd);
+        }else{
+            printf("unknown fd type !!!\n");
             exit(8);
         }
-        printf("write success\n");
-        close(writefd);
+        current_linker++;
+
+        if(current_linker == totallinker)
+            break;
     }
+
     close(unix_server_fd);
+
     exit(0);
 }
