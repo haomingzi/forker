@@ -50,6 +50,8 @@ void workmap_insert(workmap *_map,int taskid,work worker);
 void workmap_delete(workmap *_map,int taskid);
 void work_ref_inc(work* _pw);
 bool work_finish(work* _pw);
+void workmap_clear(workmap *_map);
+void close_all_files();
 
 #endif
 

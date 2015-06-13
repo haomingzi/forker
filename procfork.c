@@ -68,6 +68,8 @@ int fork_and_send(int fd_to_send,int taskid,int totallinker)
         }else if(pid == 0){
             close(fd_to_send);
             close(unix_server_fd);
+            close_all_files();
+            workmap_clear(&workers);
             worker(taskid,totallinker);
         }
 
